@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenRouter ENVAPI Demo</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }
+        .card { border: 1px solid #ddd; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, textarea, select { width: 100%; padding: 8px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { background-color: #6200ea; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold; }
+        button:hover { background-color: #3700b3; }
+        pre { background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; }
+        .status { padding: 10px; border-radius: 4px; margin-top: 10px; display: none; }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .note { font-size: 0.9em; color: #666; background: #fff3e0; padding: 10px; border-radius: 4px; margin-bottom: 15px; }
+        .chat-box { border: 1px solid #eee; padding: 10px; height: 300px; overflow-y: auto; margin-bottom: 15px; background: #fafafa; }
+        .msg { padding: 8px 12px; border-radius: 8px; margin-bottom: 8px; max-width: 80%; }
+        .msg.user { background: #e3f2fd; margin-left: auto; text-align: right; }
+        .msg.ai { background: #fff; border: 1px solid #ddd; }
+    </style>
+</head>
+<body>
+    <h1>OpenRouter + ENVAPI Proxy</h1>
+    
+    <div class="card">
+        <h2>1. Configuration</h2>
+        <div class="note">
+            <strong>Important:</strong> Ensure you have added the OpenRouter configuration to your Admin Dashboard first!
+            See <a href="README.md" target="_blank">README.md</a> for the JSON configuration.
+        </div>
+
+        <label for="workerUrl">Worker URL</label>
+        <input type="text" id="workerUrl" placeholder="https://envapi-worker.your-subdomain.workers.dev" value="https://envapi-worker.free12345543210987.workers.dev">
+        
+        <label for="projectKey">Project Key</label>
+        <input type="text" id="projectKey" placeholder="pk_..." value="pk_demo_12345">
+        
+        <label for="apiName">API Name (configured in Admin)</label>
+        <input type="text" id="apiName" placeholder="e.g., openrouter-chat" value="openrouter-chat">
+        
+        <label for="model">Model</label>
+        <input type="text" id="model" placeholder="e.g., deepseek/deepseek-r1:free" value="deepseek/deepseek-r1:free">
+    </div>
+
+    <div class="card">
+        <h2>2. Chat Interface</h2>
+        <div id="chat-box" class="chat-box">
+            <div class="msg ai">Hello! I am connected via OpenRouter through your ENVAPI proxy. How can I help you?</div>
+        </div>
+
+        <div style="display: flex; gap: 10px;">
+            <input type="text" id="userInput" placeholder="Type your message..." onkeypress="if(event.key === 'Enter') sendMessage()">
+            <button onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+
+    <div id="status" class="status"></div>
+    
+    <script>
+        function addMessage(role, text) {
+            const chatBox = document.getElementById('chat-box');
+            const div = document.createElement('div');
+            div.className = `msg ${role}`;
+            div.textContent = text;
+            chatBox.appendChild(div);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('userInput');
+            const text = input.value.trim();
+            if (!text) return;
+
+            addMessage('user', text);
+            input.value = '';
+
+            const workerUrl = document.getElementById('workerUrl').value.replace(/\/$/, '');
+            const projectKey = document.getElementById('projectKey').value;
+            const apiName = document.getElementById('apiName').value;
+            const model = document.getElementById('model').value;
+            
+            const statusDiv = document.getElementById('status');
+            statusDiv.style.display = 'none';
+
+            try {
+                addMessage('ai', 'Thinking...');
+                
+                // OpenRouter uses OpenAI-compatible format
+                const payload = {
+                    model: model,
+                    messages: [
+                        { role: "user", content: text }
+                    ]
+                };
+
+                const res = await fetch(`${workerUrl}/proxy`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        projectKey: projectKey,
+                        apiName: apiName,
+                        ...payload
+                    })
+                });
+
+                const data = await res.json();
+                
+                // Remove "Thinking..." message (last child)
+                const chatBox = document.getElementById('chat-box');
+                chatBox.removeChild(chatBox.lastChild);
+
+                if (res.ok) {
+                    const reply = data.choices?.[0]?.message?.content || "No response content.";
+                    addMessage('ai', reply);
+                } else {
+                    const errorDetails = data.details ? `\nDetails: ${JSON.stringify(data.details, null, 2)}` : '';
+                    throw new Error((data.error || 'Unknown error') + errorDetails);
+                }
+            } catch (err) {
+                const chatBox = document.getElementById('chat-box');
+                if (chatBox.lastChild.textContent === 'Thinking...') {
+                    chatBox.removeChild(chatBox.lastChild);
+                }
+                
+                statusDiv.style.display = 'block';
+                statusDiv.className = 'status error';
+                statusDiv.textContent = 'Error: ' + err.message.split('\n')[0];
+                addMessage('ai', 'Error: ' + err.message);
+            }
+        }
+    </script>
+</body>
+</html>
